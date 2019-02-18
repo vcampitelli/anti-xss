@@ -526,10 +526,11 @@ final class AntiXSS
 
     /**
      * @param string $str
+     * @param bool $stopWhenFound If we should stop as soon as something is found
      *
      * @return mixed
      */
-    private function _do($str)
+    private function _do($str, bool $stopWhenFound = false)
     {
         $str = (string) $str;
         $strInt = (int) $str;
@@ -578,21 +579,45 @@ final class AntiXSS
 
         // remove strings that are never allowed
         $str = $this->_do_never_allowed($str);
+        if (($stopWhenFound) && ($str_backup !== $str)) {
+            $this->xss_found = true;
+            return false;
+        }
 
         // corrects words before the browser will do it
         $str = $this->_compact_exploded_javascript($str);
+        if (($stopWhenFound) && ($str_backup !== $str)) {
+            $this->xss_found = true;
+            return false;
+        }
 
         // remove disallowed javascript calls in links, images etc.
         $str = $this->_remove_disallowed_javascript($str);
+        if (($stopWhenFound) && ($str_backup !== $str)) {
+            $this->xss_found = true;
+            return false;
+        }
 
         // remove evil attributes such as style, onclick and xmlns
         $str = $this->_remove_evil_attributes($str);
+        if (($stopWhenFound) && ($str_backup !== $str)) {
+            $this->xss_found = true;
+            return false;
+        }
 
         // sanitize naughty JavaScript elements
         $str = $this->_sanitize_naughty_javascript($str);
+        if (($stopWhenFound) && ($str_backup !== $str)) {
+            $this->xss_found = true;
+            return false;
+        }
 
         // sanitize naughty HTML elements
         $str = $this->_sanitize_naughty_html($str);
+        if (($stopWhenFound) && ($str_backup !== $str)) {
+            $this->xss_found = true;
+            return false;
+        }
 
         // final clean up
         //
@@ -602,6 +627,10 @@ final class AntiXSS
         // check for xss
         if ($this->xss_found !== true) {
             $this->xss_found = !($str_backup === $str);
+        }
+
+        if (($stopWhenFound) && ($this->xss_found)) {
+            return false;
         }
 
         return $str;
@@ -1432,5 +1461,40 @@ final class AntiXSS
         }
 
         return $str;
+    }
+
+    /**
+     * Checks if XSS was found in the specified string, without actually filtering it.
+     * If so, you should stop the processing, instead of trying to sanitize the request.
+     *
+     * @param string|array $str Input string (or an array of strings)
+     *
+     * @return bool
+     */
+    public function hasXss($str): bool
+    {
+        // reset
+        $this->xss_found = null;
+
+        // check for an array of strings
+        if (\is_array($str)) {
+            foreach ($str as $value) {
+                if ($this->hasXss($value)) {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        // process
+        do {
+            $old_str = $str;
+
+            // Passing true as a 2nd argument to stop processing when something nasty is found
+            $str = $this->_do($str, true);
+        } while (($this->xss_found !== true) && ($old_str !== $str));
+
+        return $this->xss_found === true;
     }
 }
